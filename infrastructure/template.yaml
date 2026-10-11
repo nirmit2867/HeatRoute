@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: HeatRoute - API Gateway + Lambda + DynamoDB + S3 + Bedrock
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: ""
+    Description: Bedrock model or inference profile ID you have access to. Empty = template explanations.
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 256
+    CodeUri: ../backend/lambda/
+    Environment:
+      Variables:
+        HEATCELLS_TABLE: !Ref HeatCells
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+Resources:
+  HeatCells:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: cell_id, AttributeType: S}]
+      KeySchema: [{AttributeName: cell_id, KeyType: HASH}]
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: [POST, OPTIONS]
+        AllowHeaders: [content-type]
+  RouteScoreFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: route_score.handler.lambda_handler
+      Policies:
+        - DynamoDBReadPolicy: {TableName: !Ref HeatCells}
+      Events:
+        Post: {Type: HttpApi, Properties: {ApiId: !Ref Api, Path: /route, Method: POST}}
+  ExplainRouteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: explain_route.handler.lambda_handler
+      Policies:
+        - DynamoDBReadPolicy: {TableName: !Ref HeatCells}
+        - Statement:
+            - {Effect: Allow, Action: ['bedrock:InvokeModel'], Resource: '*'}
+      Events:
+        Post: {Type: HttpApi, Properties: {ApiId: !Ref Api, Path: /explain, Method: POST}}
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration: {IndexDocument: index.html}
+      PublicAccessBlockConfiguration: {BlockPublicAcls: false, BlockPublicPolicy: false, IgnorePublicAcls: false, RestrictPublicBuckets: false}
+  SitePolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Statement:
+          - {Effect: Allow, Principal: '*', Action: 's3:GetObject', Resource: !Sub '${SiteBucket.Arn}/*'}
+Outputs:
+  ApiUrl: {Value: !GetAtt Api.ApiEndpoint}
+  SiteUrl: {Value: !GetAtt SiteBucket.WebsiteURL}
+  SiteBucketName: {Value: !Ref SiteBucket}
+  TableName: {Value: !Ref HeatCells}

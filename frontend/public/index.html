@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeatRoute: find the cooler way there</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#E9EFF0;--panel:#F8FAFA;--ink:#16303A;--muted:#52666D;--line:#C5D3D6;--teal:#0E7C86;--red:#C23B22;
+--display:"Bricolage Grotesque","Trebuchet MS",sans-serif;--body:"IBM Plex Sans","Segoe UI",sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0F1E24;--panel:#162A31;--ink:#E4EEF0;--muted:#9DB2B8;--line:#2A424A;--teal:#4CC3CC}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 var(--body)}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px}
+h1{font:700 28px/1 var(--display);margin:0;letter-spacing:-.01em}
+header span{color:var(--muted)}
+.tag{font:500 15px var(--display);color:var(--muted);margin:4px 0 0}
+.grid{display:grid;grid-template-columns:320px 1fr;gap:16px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+label{display:block;font-weight:500;margin:12px 0 4px}
+input[type=text],select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+input[type=range]{width:100%;accent-color:var(--teal)}
+.hint{font-size:13px;color:var(--muted);margin:4px 0 0}
+button{font:inherit;cursor:pointer}
+.go{width:100%;margin-top:18px;padding:12px;border:0;border-radius:8px;background:var(--teal);color:#fff;font:700 17px var(--display)}
+.go:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+.note{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px;margin:0 0 12px}
+.map{width:100%;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;display:block}
+.summary{font:500 18px/1.35 var(--display);margin:14px 0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.card{text-align:left;background:var(--panel);color:var(--ink);border:2px solid var(--line);border-radius:8px;padding:12px}
+.card[aria-pressed=true]{border-color:var(--teal)}
+.card b{display:block;font:700 15px var(--display)}
+.card .big{font:700 38px/1 var(--display);margin:6px 0 2px}
+.card small{color:var(--muted)}
+.badge{display:inline-block;background:var(--teal);color:#fff;border-radius:4px;padding:0 6px;font-size:12px;margin-left:6px}
+.bar{height:6px;border-radius:3px;background:var(--line);margin-top:8px}.bar i{display:block;height:100%;border-radius:3px}
+.why{margin-top:14px;padding:0;border:0;background:none;color:var(--teal);font-weight:500;text-decoration:underline}
+.explain{margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+.err{background:#F7DCD6;color:#6B1D10;border-radius:8px;padding:12px;margin-bottom:12px}
+.empty{color:var(--muted);padding:40px 0;text-align:center}
+.disc{font-size:13px;color:var(--muted);margin-top:14px}
+@media(prefers-reduced-motion:no-preference){.map path{transition:opacity .25s,stroke-width .25s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><div><h1>HeatRoute</h1><p class="tag">Maps optimize your journey. HeatRoute optimizes your exposure.</p></div><span>Ahmedabad</span></header>
+  <div class="grid">
+    <form class="panel" id="form">
+      <label for="from">From</label><input type="text" id="from" value="Nirma University">
+      <label for="to">To</label><input type="text" id="to" value="Ahmedabad Airport">
+      <p class="hint">The demo covers this one corridor only.</p>
+      <label for="time">Time: <output id="timeOut">1 PM</output></label>
+      <input type="range" id="time" min="8" max="19" step="1" value="13">
+      <p class="hint">Conditions are modelled for morning, midday and evening.</p>
+      <label for="profile">Travelling as</label>
+      <select id="profile"><option value="pedestrian">Pedestrian</option><option value="cyclist">Cyclist</option><option value="outdoor_worker">Outdoor worker</option></select>
+      <button class="go" id="go" type="submit">Find cool route</button>
+    </form>
+    <section class="panel" id="out" aria-live="polite"><p class="empty">Choose a time and profile, then select Find cool route.</p></section>
+  </div>
+</div>
+<script src="config.js"></script>
+<script>
+const API = window.HEATROUTE_API ?? "/api";
+const $ = id => document.getElementById(id);
+const mk = ns => (tag, props = {}, ...kids) => {
+  const n = document.createElementNS(ns, tag);
+  for (const [k, v] of Object.entries(props)) k.startsWith("on") ? n.addEventListener(k.slice(2), v) : n.setAttribute(k, v);
+  n.append(...kids.flat().filter(x => x != null)); return n;
+};
+const el = mk("http://www.w3.org/1999/xhtml"), svg = mk("http://www.w3.org/2000/svg");
+const STOPS = [[0, [14, 124, 134]], [50, [227, 162, 47]], [100, [194, 59, 34]]];
+function heat(s) {
+  const [a, b] = s <= 50 ? [STOPS[0], STOPS[1]] : [STOPS[1], STOPS[2]];
+  const t = (s - a[0]) / (b[0] - a[0]);
+  return `rgb(${a[1].map((v, i) => Math.round(v + (b[1][i] - v) * t)).join(",")})`;
+}
+const hourText = h => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+const FACTORS = {temperature: "Air temperature", solar: "Direct sun", surface: "Hot surfaces", duration: "Time outdoors",
+  shade_relief: "Shade (cools)", vegetation_relief: "Greenery (cools)", wind_relief: "Breeze (cools)"};
+const KINDS = {fastest: "Fastest", balanced: "Balanced", cooler: "Cooler"};
+let state = null, selected = null, timer = null;
+
+const payload = () => JSON.stringify({time: `${$("time").value}:00`, profile: $("profile").value});
+async function post(path, body) {
+  const r = await fetch(API + path, {method: "POST", headers: {"Content-Type": "application/json"}, body});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || "The server returned an error.");
+  return data;
+}
+async function run() {
+  const out = $("out"), go = $("go");
+  go.disabled = true; go.textContent = "Finding routes…";
+  try {
+    state = await post("/route", payload()); selected = state.recommendation.recommended_id; render();
+  } catch (e) {
+    out.replaceChildren(el("div", {class: "err", role: "alert"}, "Could not compare routes. " + e.message + " Check your connection and select Find cool route again."));
+  } finally { go.disabled = false; go.textContent = "Find cool route"; }
+}
+function map(d) {
+  const s = svg("svg", {class: "map", viewBox: "0 0 100 100", role: "img", "aria-label": "Schematic map of the compared routes, coloured by heat"});
+  for (const r of [...d.routes].sort((a, b) => (a.id === selected) - (b.id === selected)))
+    for (const seg of r.segments) {
+      const [first, ...rest] = seg.path, on = r.id === selected;
+      s.append(svg("path", {d: `M${first} ` + rest.map(p => `L${p}`).join(" "), fill: "none", stroke: heat(seg.score),
+        "stroke-width": on ? 2.6 : 1.4, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: on ? 1 : .35}));
+    }
+  const pin = (x, y, t, dx) => [svg("circle", {cx: x, cy: y, r: 2, fill: "var(--ink)"}), svg("text", {x: x + dx, y: y + 1, "font-size": 4.2, fill: "var(--ink)", "text-anchor": dx < 0 ? "end" : "start"}, t)];
+  s.append(...pin(10, 80, $("from").value || "Start", 4), ...pin(90, 20, $("to").value || "End", -4),
+    svg("text", {x: 98, y: 97, "font-size": 3, fill: "var(--muted)", "text-anchor": "end"}, "Schematic, not to scale. Line colour shows heat: cool teal to hot red."));
+  return s;
+}
+function render() {
+  const d = state, rec = d.recommendation, by = Object.fromEntries(d.routes.map(r => [r.id, r]));
+  const fast = by[rec.fastest_id], best = by[rec.recommended_id];
+  const summary = rec.recommended_id === rec.fastest_id
+    ? `At ${hourText(+$("time").value)}, the fastest route is the best choice. No alternative saves enough heat to justify the extra time.`
+    : `Take ${best.name}: ${rec.extra_minutes} min longer, heat score ${fast.score} to ${best.score} (${rec.reduction_pct}% lower).`;
+  const cards = [...d.routes].sort((a, b) => a.minutes - b.minutes).map(r =>
+    el("button", {class: "card", type: "button", "aria-pressed": r.id === selected, onclick: () => { selected = r.id; render(); }},
+      el("b", {}, KINDS[r.kind] || r.kind, r.id === rec.recommended_id ? el("span", {class: "badge"}, "Recommended") : null),
+      el("small", {}, r.name), el("div", {class: "big"}, String(r.score)),
+      el("small", {}, `${r.label} heat · ${r.minutes} min`),
+      el("div", {class: "bar"}, el("i", {style: `width:${r.score}%;background:${heat(r.score)}`}))));
+  $("out").replaceChildren(
+    el("p", {class: "note"}, d.meta.note), map(d),
+    el("p", {class: "summary"}, summary), el("div", {class: "cards"}, cards),
+    el("button", {class: "why", type: "button", onclick: explain}, "Why this route?"),
+    el("div", {class: "explain", id: "explain"}),
+    el("p", {class: "disc"}, "The Heat Exposure Score is an estimated environmental index, not a medical prediction."));
+}
+async function explain() {
+  const box = $("explain"); box.textContent = "Writing explanation…";
+  try {
+    const x = await post("/explain", payload()), rec = state.recommendation;
+    const cols = [...new Set([rec.fastest_id, rec.recommended_id])].map(id => state.routes.find(r => r.id === id));
+    box.replaceChildren(el("p", {}, x.explanation),
+      el("p", {class: "hint"}, x.source === "bedrock" ? "Explanation written by Amazon Bedrock from the inputs below." : "Explanation generated from the inputs below (Bedrock is not configured here)."),
+      el("table", {}, el("tr", {}, el("th", {}, "Input (0 to 100)"), cols.map(c => el("th", {}, c.name))),
+        Object.entries(FACTORS).map(([k, name]) => el("tr", {}, el("td", {}, name), cols.map(c => el("td", {}, String(c.factors[k])))))));
+  } catch (e) { box.replaceChildren(el("div", {class: "err", role: "alert"}, "Could not write the explanation. " + e.message)); }
+}
+$("form").addEventListener("submit", e => { e.preventDefault(); run(); });
+$("profile").addEventListener("change", () => state && run());
+$("time").addEventListener("input", () => {
+  $("timeOut").textContent = hourText(+$("time").value);
+  if (state) { clearTimeout(timer); timer = setTimeout(run, 200); }
+});
+</script>
+</body>
+</html>
